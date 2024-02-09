@@ -1,0 +1,63 @@
+{
+  "slug": "KWAModules",
+  "name": "KWA Modules",
+  "version": "2.0.0",
+  "license": "GPL-3.0-or-later",
+  "brand": "KWA Modules",
+  "author": "Keira K",
+  "authorEmail": "keira.k.exe@gmail.com",
+  "pluginUrl": "https://github.com/PuddlePumpkin/KWA-Modules",
+  "manualUrl": "https://github.com/PuddlePumpkin/KWA-Modules",
+  "sourceUrl": "https://github.com/PuddlePumpkin/KWA-Modules",
+  "modules": [
+    {
+      "slug": "SixtyFourGatePitchSeq",
+      "name": "KWA Pitch 64",
+      "description": "64 step pitch / velocity / trigger sequencer",
+      "keywords": "gate ctrl",
+      "tags": [
+        "Sequencer"
+      ]
+    },
+    {
+      "slug": "EightGateSequencer",
+      "name": "KWA Trig 8",
+      "description": "8 step trigger sequencer - compatible with KWA Control expanders",
+      "keywords": "gate ctrl",
+      "tags": [
+        "Sequencer",
+        "Expander"
+      ]
+    },
+    {
+      "slug": "EightGateSequencerChild",
+      "name": "KWA Control 8",
+      "description": "Expandable 8 step trigger sequencer - Requires KWA Control 8 Manager",
+      "keywords": "gate ctrl",
+      "tags": [
+        "Sequencer",
+        "Expander"
+      ]
+    },
+    {
+      "slug": "SequencerController",
+      "name": "KWA Control 8 Manager",
+      "description": "Manager expander for KWA Control 8 trigger sequencer modules",
+      "keywords": "gate step ctrl",
+      "tags": [
+        "Sequencer",
+        "Expander"
+      ]
+    },
+    {
+      "slug": "SequencerEnd",
+      "name": "KWA Control 8 Monitor",
+      "description": "Output expander for KWA Control 8 trigger sequencer modules",
+      "keywords": "gate step ctrl",
+      "tags": [
+        "Sequencer",
+        "Expander"
+      ]
+    }
+  ]
+}
