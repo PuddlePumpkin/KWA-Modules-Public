@@ -25,7 +25,8 @@ struct SequencerEnd : Module {
 	dsp::PulseGenerator resetOutputPulse;
 	dsp::PulseGenerator eocOutputPulse;
 	dsp::PulseGenerator globalTriggerOutputPulse;
-
+	
+	// Expander Message Arrays
 	float leftMessages[2][8] = {};
 	float rightMessages[2][8] = {};
 
@@ -46,7 +47,7 @@ struct SequencerEnd : Module {
 	void process(const ProcessArgs& args) override {
 		const bool is_baby = leftExpander.module && (leftExpander.module->model == modelEightGateSequencer
 			|| leftExpander.module->model == modelEightGateSequencerChild);
-		// Read left
+		// Read left expander messages
 		if (is_baby) {
 			float* leftMessage = (float*)leftExpander.consumerMessage;
 			//[0] Clock signal
@@ -108,7 +109,7 @@ struct SequencerEndWidget : ModuleWidget {
 
 		addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));
 		addChild(createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
-		float arr[5] = { 0,0,0,0,0 };
+		float arr[5] = {0};
 		for (int i = 0; i < 5; i++) {
 			arr[i] = 117 - i * 16.251;
 		}

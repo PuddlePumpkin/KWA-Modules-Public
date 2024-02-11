@@ -23,12 +23,12 @@ struct SequencerController : Module {
 	dsp::SchmittTrigger inputTriggerSchmitt;
 	dsp::SchmittTrigger inputResetSchmitt;
 
-	// Link modules
+	// Expander Message Arrays
 	float leftMessages[2][8] = {};
 	float rightMessages[2][8] = {};
 
-	// Input Signals
-	float signalInputMasterEoc = 0;
+	// Expander Signals
+	float expanderInputMasterEOC = 0;
 
 	//State vars
 	bool clockTriggered = false;
@@ -75,11 +75,11 @@ struct SequencerController : Module {
 		if (is_momma) {
 			float* rightMessage = (float*)rightExpander.consumerMessage;
 			//[0]
-			signalInputMasterEoc = rightMessage[0];
+			expanderInputMasterEOC = rightMessage[0];
 		}
 		
 		// Reset input
-		if (inputResetSchmitt.process((inputs[RESET_INPUT].getVoltage() > signalInputMasterEoc ? inputs[RESET_INPUT].getVoltage() : signalInputMasterEoc), 0.1f, 1.f)) {
+		if (inputResetSchmitt.process((inputs[RESET_INPUT].getVoltage() > expanderInputMasterEOC ? inputs[RESET_INPUT].getVoltage() : expanderInputMasterEOC), 0.1f, 1.f)) {
 			eocOutputPulse.trigger(1e-3f);
 			resetTriggered = true;
 		}
@@ -110,8 +110,6 @@ struct SequencerControllerWidget : ModuleWidget {
 		setPanel(createPanel(asset::plugin(pluginInstance, "res/n_SequencerController.svg")));
 
 		addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, 0)));
-		//addChild(createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, 0)));
-		//addChild(createWidget<ScrewBlack>(Vec(RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 		addChild(createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(5.08, 63.35)), module, SequencerController::CONTINUOUS_MODE_PARAM, SequencerController::CONTINUOUS_MODE_LIGHT));
