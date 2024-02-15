@@ -6,7 +6,7 @@ struct SixtyFourGatePitchSeq : Module {
 		ENUMS(BUTTON_MATRIX_PARAMS, 64),
 		ENUMS(GATE_PARAMS, 64),
 		ENUMS(VOCT_PARAMS, 64),
-		ENUMS(VOCT_HAS_WRITTEN_PARAMS, 64),
+		ENUMS(HAS_RECORDED_PARAMS, 64),
 		ENUMS(VELOCITY_PARAMS, 64),
 		RECORD_MODE_PARAM,
 		EDIT_MODE_PARAM,
@@ -54,7 +54,7 @@ struct SixtyFourGatePitchSeq : Module {
 	int currentStep = 0;
 	int currentSubstep = 0;
 	int currentWorkingStep = 0;
-	bool isInputGateOn = false;
+	bool isGateHigh = false;
 	bool gateModeSelected = false;
 	bool isRecording = false;
 	bool editModeSelectedGates[64] = {false};
@@ -66,6 +66,7 @@ struct SixtyFourGatePitchSeq : Module {
 	float minVoct = 10.f;
 	float maxVel = -10.f;
 	float minVel = 10.f;
+	float voctVoltage = 0.f;
 	
 	int processCounter = 0;
 

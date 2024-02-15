@@ -148,7 +148,7 @@ struct EightGateSequencerChild : Module {
 			activeStep = is_baby_of_controller ? 0 : activeStep;
 		}
 
-		// Iterate Button Rows
+		// Iterate Step Buttons
 		for (int i = 0; i < 8; i++) {
 			const bool isButtonPressed = params[GATE_PARAMS + i].getValue() > 0.f;
 			lights[GATE_LIGHTS_STEPPED + i].setBrightness(i == activeStep);
