@@ -5,10 +5,12 @@ SixtyFourGatePitchSeq::SixtyFourGatePitchSeq() {
 	config(NUM_PARAMS, NUM_INPUTS, NUM_OUTPUTS, NUM_LIGHTS);
 	for (int i = 0; i < 64; i++) {
 		configButton(BUTTON_MATRIX_PARAMS + i, string::f("%d", i + 1));
+	}
+	for (int i = 0; i < 640; i++) {
+		configParam(HAS_RECORDED_PARAMS + i, 0, 10, 0);
 		configParam(VOCT_PARAMS + i, -10, 10, 0);
 		configParam(VELOCITY_PARAMS + i, -10, 10, 0);
 		configParam(GATE_PARAMS + i, 0, 10, 0);
-		configParam(HAS_RECORDED_PARAMS + i, 0, 10, 0);
 	}
 	configButton(RECORD_MODE_PARAM, "Record");
 	configButton(EDIT_MODE_PARAM, "Edit Mode");
@@ -38,38 +40,47 @@ SixtyFourGatePitchSeq::SixtyFourGatePitchSeq() {
 }
 
 void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
+	//channels
+	int channels = std::min(std::max(inputs[GATE_INPUT].getChannels(), 1), 10);
 	//less often process - for sample insensitive code
 	if (processCounter >= 49) {
-		processFifty(args);
+		processFifty(args, channels);
 		processCounter = 0;
 	}
 	processCounter++;
-
+	outputs[GATE_OUTPUT].setChannels(channels);
+	outputs[VOCT_OUTPUT].setChannels(channels);
+	outputs[VELOCITY_OUTPUT].setChannels(channels);
+	
 	// Gate Rise + Fall
-	bool gateFellThisSample = false;
-	bool gateRoseThisSample = false;
-	float gateVoltage = inputs[GATE_INPUT].getVoltage();
-			// HIGH to LOW
-		if (isGateHigh) {
-			if (gateVoltage <= 0.1f) {
-				isGateHigh = false;
-				gateFellThisSample = true;
+	for (int c = 0; c < channels; c++) {
+		engines[c].gateFellThisSample = false;	
+		engines[c].gateRoseThisSample = false;
+		float gateVoltage = inputs[GATE_INPUT].getVoltage(c);
+				// HIGH to LOW
+			if (engines[c].isGateHigh) {
+				if (gateVoltage <= 0.1f) {
+					engines[c].isGateHigh = false;
+					engines[c].gateFellThisSample = true;
+				}
 			}
-		}
-		else {
-			// LOW to HIGH
-			if (gateVoltage >= 2.f) {
-				isGateHigh = true;
-				gateRoseThisSample = true;
+			else {
+				// LOW to HIGH
+				if (gateVoltage >= 2.f) {
+					engines[c].isGateHigh = true;
+					engines[c].gateRoseThisSample = true;
+				}
 			}
-		}
+	}
 	
 	// Voct Movement Detection
-	bool voctMovedThisSample = false;
-	float newVoctVoltage = inputs[VOCT_INPUT].getVoltage();
-	if ((newVoctVoltage != voctVoltage) && isGateHigh){
-		voctMovedThisSample = true;
-		voctVoltage = newVoctVoltage;
+	for (int c = 0; c < channels; c++) {
+		engines[c].voctMovedThisSample = false;
+		float newVoctVoltage = inputs[VOCT_INPUT].getVoltage();
+		if ((newVoctVoltage != engines[c].voctVoltage) && engines[c].isGateHigh){
+			engines[c].voctMovedThisSample = true;
+			engines[c].voctVoltage = newVoctVoltage;
+		}
 	}
 
 	// Clock
@@ -83,15 +94,19 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 			else {
 				currentStep += 1;
 			}
-			if(params[GATE_PARAMS + currentStep].getValue() > 0){
-				if(!hasTriggerOutputPulsedThisStep){
-					triggerOutputPulse.trigger(1e-3f);
-					hasTriggerOutputPulsedThisStep = true;
+			for (int c = 0; c < channels; c++) {
+				if(params[GATE_PARAMS + currentStep + (64 * c)].getValue() > 0){
+					if(!engines[c].hasTriggerOutputPulsedThisStep){
+						engines[c].triggerOutputPulse.trigger(1e-3f);
+						engines[c].hasTriggerOutputPulsedThisStep = true;
+					}
 				}
 			}
 			currentSubstep = 0;
 			clockOutputPulse.trigger(1e-3f);
-			hasTriggerOutputPulsedThisStep = false;
+			for (int c = 0; c < channels; c++) {
+				engines[c].hasTriggerOutputPulsedThisStep = false;
+			}
 		}
 		// Quantize substep to a working step
 		if (currentSubstep >= 3){
@@ -100,43 +115,50 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 			currentWorkingStep = currentStep;
 		}
 		//Playback other voltages
-		if(params[HAS_RECORDED_PARAMS + currentStep].getValue() > 0 && !(inputs[GATE_INPUT].getVoltage() > 0)){
-			outputs[VOCT_OUTPUT].setVoltage(params[VOCT_PARAMS + currentStep].getValue());
-			outputs[VELOCITY_OUTPUT].setVoltage(params[VELOCITY_PARAMS + currentStep].getValue());
+		for (int c = 0; c < channels; c++) {
+			if(params[HAS_RECORDED_PARAMS + currentStep + (64 * c)].getValue() > 0 && !(inputs[GATE_INPUT].getVoltage(c) > 0)){
+				outputs[VOCT_OUTPUT].setVoltage(params[VOCT_PARAMS + currentStep + (64 * c)].getValue(), c);
+				outputs[VELOCITY_OUTPUT].setVoltage(params[VELOCITY_PARAMS + currentStep + (64 * c)].getValue(), c);
+			}
 		}
 		shouldRefreshDisplay = true;
 	}
+	for (int c = 0; c < channels; c++) {
+		// On input gate rise
+		if (engines[c].gateRoseThisSample || engines[c].voctMovedThisSample) 
+		{
+			// recording
+			if(isRecording)
+			{
+				params[GATE_PARAMS + currentWorkingStep + (64 * c)].setValue(10.f);
+				params[HAS_RECORDED_PARAMS + currentWorkingStep + (64 * c)].setValue(10.f);
+				params[VOCT_PARAMS + currentWorkingStep + (64 * c)].setValue(inputs[VOCT_INPUT].getVoltage(c));
+				params[VELOCITY_PARAMS + currentWorkingStep + (64 * c)].setValue(inputs[VELOCITY_INPUT].getVoltage(c));
+			// in edit mode
+			} else if (!gateModeSelected)
+			{ 
+				int selectedCount = 0;
+				int lastSelectedIndex = 0;
+				for (int c = 0; c < channels; c++) {
+					for (int i = 0; i < 64; i++) {
+						if(editModeSelectedGates[i]){
+							params[GATE_PARAMS + (64 * c) + i].setValue(10.f);
+							params[HAS_RECORDED_PARAMS + (64 * c) + i].setValue(10.f);
+							params[VOCT_PARAMS + (64 * c) +  i].setValue(inputs[VOCT_INPUT].getVoltage(c));
+							params[VELOCITY_PARAMS + (64 * c) + i].setValue(inputs[VELOCITY_INPUT].getVoltage(c));
+							editModeSelectedGates[i] = false;
+							selectedCount++;
+							lastSelectedIndex = i;
+						}
+					}
+				}
 
-	// On input gate rise
-	if (gateRoseThisSample || voctMovedThisSample) {
-		// recording
-		if(isRecording){
-			params[GATE_PARAMS + currentWorkingStep].setValue(10.f);
-			params[HAS_RECORDED_PARAMS + currentWorkingStep].setValue(10.f);
-			params[VOCT_PARAMS + currentWorkingStep].setValue(inputs[VOCT_INPUT].getVoltage());
-			params[VELOCITY_PARAMS + currentWorkingStep].setValue(inputs[VELOCITY_INPUT].getVoltage());
-
-		// in edit mode
-		} else if (!gateModeSelected) { 
-			int selectedCount = 0;
-			int lastSelectedIndex = 0;
-			for(int i = 0; i < 64; i++){
-				if(editModeSelectedGates[i]){
-					params[GATE_PARAMS + i].setValue(10.f);
-					params[HAS_RECORDED_PARAMS + i].setValue(10.f);
-					params[VOCT_PARAMS + i].setValue(inputs[VOCT_INPUT].getVoltage());
-					params[VELOCITY_PARAMS + i].setValue(inputs[VELOCITY_INPUT].getVoltage());
-					editModeSelectedGates[i] = false;
-					selectedCount++;
-					lastSelectedIndex = i;
+				// only 1 gate was edited, step to next
+				if(selectedCount == 1){
+					editModeSelectedGates[lastSelectedIndex >= (params[STEP_COUNT_PARAM].getValue() - 1) ? 0 : lastSelectedIndex + 1] = true;
 				}
 			}
-			// only 1 gate was edited, step to next
-			if(selectedCount == 1){
-				editModeSelectedGates[lastSelectedIndex >= (params[STEP_COUNT_PARAM].getValue() - 1) ? 0 : lastSelectedIndex + 1] = true;
-			}
 		}
-		
 	}
 
 	// Reset - Schmitt trigger
@@ -146,22 +168,25 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 		shouldRefreshDisplay = true;
 	}
 
-	if(gateFellThisSample){
-		outputs[GATE_OUTPUT].setVoltage(0.f);
+	for (int c = 0; c < channels; c++) {
+		if(engines[c].gateFellThisSample){
+			outputs[GATE_OUTPUT].setVoltage(0.f, c);
+		}
 	}
 
 	// Output - pulses
-	outputs[GATE_OUTPUT].setVoltage((triggerOutputPulse.process(args.sampleTime) ? 10.f : 0.f) > inputs[GATE_INPUT].getVoltage() ? 10.f : inputs[GATE_INPUT].getVoltage());
+	for (int c = 0; c < channels; c++) {
+		outputs[GATE_OUTPUT].setVoltage((engines[c].triggerOutputPulse.process(args.sampleTime) ? 10.f : 0.f) > inputs[GATE_INPUT].getVoltage(c) ? 10.f : inputs[GATE_INPUT].getVoltage(c),c);
+	}
 	outputs[RESET_OUTPUT].setVoltage(inputs[RESET_INPUT].getVoltage());
 	outputs[EOC_OUTPUT].setVoltage(eocOutputPulse.process(args.sampleTime) ? 10.f : 0.f);
 	outputs[CLOCK_OUTPUT].setVoltage(clockOutputPulse.process(args.sampleTime) ? 10.f : 0.f);
 
 }
 
-void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args){
+void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args, int channels){
+	
 	// Buttons
-
-
 	// [MODE 1] - Record mode button pressed:
 	if(params[RECORD_MODE_PARAM].getValue() > 0.f) {
 			isRecording = !isRecording;
@@ -195,11 +220,23 @@ void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args){
 		if(params[BUTTON_MATRIX_PARAMS + i].getValue() > 0.f){
 			anyThisSet = true;
 			wasButtonPressedThisSample = true;
-			// Gate Mode
-			if(gateModeSelected){
-				params[GATE_PARAMS + i].setValue(params[GATE_PARAMS + i].getValue() > 0 ? 0.f : 10.f);
-				clearNoteParams(i);
+			if(!gateModifiedSinceRelease){
+				// Gate Mode
+				if(gateModeSelected){
+					bool gateFoundOnAnyChannel = false;
+					for (int c = 0; c < channels; c++) {
+						if(params[GATE_PARAMS + i + (64 * c)].getValue() > 0.1f){
+							clearNoteParams(i, c);
+							gateFoundOnAnyChannel = true;
+						}
+					}
+					if(!gateFoundOnAnyChannel){
+						params[GATE_PARAMS + i].setValue(10.f);
+					}
+				}
+				gateModifiedSinceRelease = true;
 			}
+			
 			// Edit Mode
 			else{
 				if(!anyPressed){
@@ -211,19 +248,22 @@ void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args){
 	}
 	if(!anyThisSet){
 		anyPressed = false;
+		gateModifiedSinceRelease = false;
 	}
 
 
 	//Display - update when a button is clicked or during a clock step
 	if(shouldRefreshDisplay || wasButtonPressedThisSample){
-		updateDisplay();
+		updateDisplay(channels);
 	}
 
 	//Audition
-	if(inputs[GATE_INPUT].getVoltage() > 0.f){
-		outputs[GATE_OUTPUT].setVoltage(inputs[GATE_INPUT].getVoltage());
-		outputs[VOCT_OUTPUT].setVoltage(inputs[VOCT_INPUT].getVoltage());
-		outputs[VELOCITY_OUTPUT].setVoltage(inputs[VELOCITY_INPUT].getVoltage());
+	for (int c = 0; c < channels; c++) {
+		if(inputs[GATE_INPUT].getVoltage(c) > 0.f){
+			outputs[GATE_OUTPUT].setVoltage(inputs[GATE_INPUT].getVoltage(c),c);
+			outputs[VOCT_OUTPUT].setVoltage(inputs[VOCT_INPUT].getVoltage(c),c);
+			outputs[VELOCITY_OUTPUT].setVoltage(inputs[VELOCITY_INPUT].getVoltage(c),c);
+		}
 	}
 }
 
@@ -234,14 +274,15 @@ void SixtyFourGatePitchSeq::setModeBrightnesses() {
 	lights[GATE_MODE_LIGHT].setBrightness(gateModeSelected);
 }
 
-void SixtyFourGatePitchSeq::clearNoteParams(int i) {
-	params[HAS_RECORDED_PARAMS + i].setValue(0);
-	params[BUTTON_MATRIX_PARAMS + i].setValue(0);
-	params[VELOCITY_PARAMS + i].setValue(0);
-	params[VOCT_PARAMS + i].setValue(0);
+void SixtyFourGatePitchSeq::clearNoteParams(int i, int channel) {
+	params[HAS_RECORDED_PARAMS + i + (64 * channel)].setValue(0.f);
+	params[BUTTON_MATRIX_PARAMS + i + (64 * channel)].setValue(0.f);
+	params[VELOCITY_PARAMS + i + (64 * channel)].setValue(0.f);
+	params[VOCT_PARAMS + i + (64 * channel)].setValue(0.f);
+	params[GATE_PARAMS + i + (64 * channel)].setValue(0.f);
 }
 
-void SixtyFourGatePitchSeq::updateDisplay(){
+void SixtyFourGatePitchSeq::updateDisplay(int channels){
 	float red = 0;
 	float green = 0;
 	float prevMinVoct = minVoct;
@@ -255,11 +296,30 @@ void SixtyFourGatePitchSeq::updateDisplay(){
 
 	for (int i = 0; i < 64; i++) {
 		//min max
-		const float voct = params[VOCT_PARAMS + i].getValue();
-		const float vel = params[VELOCITY_PARAMS + i].getValue();
-		const float gateVal = params[GATE_PARAMS + i].getValue() > 0.f ? 10.f : 0.f;
+		float voct = -10.f;
+		float vel = -10.f;
+		float gateVal = -10.f;
+		float voctSum = 0.f;
+		float velSum = 0.f;
+		int writtenChannelCount = 0.f;
+		for (int c = 0; c < channels; c++) {
+			if(params[GATE_PARAMS + i + (64 * c)].getValue() > 0.1f){
+				voctSum = voctSum + params[VOCT_PARAMS + i + (64 * c)].getValue();
+				velSum = velSum + params[VELOCITY_PARAMS + i + (64 * c)].getValue();
+				gateVal = 10.f;
+				writtenChannelCount++;
+			}
+		}
+		voct = (voctSum / writtenChannelCount);
+		vel = (velSum / writtenChannelCount);
+
 		const int displayMode = params[DISPLAY_MODE_PARAM].getValue();
-		const bool written = params[HAS_RECORDED_PARAMS + i].getValue();
+		bool written = false;
+		for (int c = 0; c < channels; c++) {
+			if (params[HAS_RECORDED_PARAMS + i + (64 * c)].getValue() > 0.1f){
+				written = true;
+			}
+		}
 		//write min maxes
 		if(written && i < (params[STEP_COUNT_PARAM].getValue())){
 			minVoct = voct < minVoct ? voct : minVoct;
