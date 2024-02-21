@@ -11,6 +11,7 @@ extern Model *modelEightGateSequencer;
 extern Model *modelEightGateSequencerChild;
 extern Model *modelSequencerController;
 extern Model *modelSequencerEnd;
+extern Model *modelSixtyFourGatePitchSeqExpander;
 
 //component templates
 

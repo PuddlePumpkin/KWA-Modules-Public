@@ -10,4 +10,5 @@ void init(Plugin *p) {
 	p->addModel(modelEightGateSequencerChild);
 	p->addModel(modelSequencerController);
 	p->addModel(modelSequencerEnd);
+	p->addModel(modelSixtyFourGatePitchSeqExpander);
 }

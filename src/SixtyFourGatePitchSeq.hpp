@@ -50,6 +50,15 @@ struct SixtyFourGatePitchSeq : Module {
 	
 
 	//State vars
+	float voctPCV[10][16][64] = {0.f};
+	float velocityPCV[10][16][64] = {0.f};
+	float gatePCV[10][16][64] = {0.f};
+	float hasRecordedDataPCV[10][16][64] = {0.f};
+	float dataOnePCV[10][16][64] = {0.f};
+	float dataTwoPCV[10][16][64] = {0.f};
+	float dataThreePCV[10][16][64] = {0.f};
+	float dataFourPCV[10][16][64] = {0.f};
+
 	int currentStep = 0;
 	int currentSubstep = 0;
 	int currentWorkingStep = 0;
@@ -60,6 +69,7 @@ struct SixtyFourGatePitchSeq : Module {
 	bool wasButtonPressedThisSample = false;
 	bool wasInitialized = false;
 	bool anyPressed = false;
+
 	float maxVoct = -10.f;
 	float minVoct = 10.f;
 	float maxVel = -10.f;
@@ -76,7 +86,7 @@ struct SixtyFourGatePitchSeq : Module {
 		bool voctMovedThisSample = false;
 		dsp::PulseGenerator triggerOutputPulse;
 	};
-	Engine engines[10];
+	Engine engines[16];
 
 	SixtyFourGatePitchSeq();
 
@@ -89,6 +99,11 @@ struct SixtyFourGatePitchSeq : Module {
 	void updateDisplay(int channels);
 
 	void clearNoteParams(int i, int channel);
+
+	json_t* dataToJson() override;
+
+	void dataFromJson(json_t* rootJ) override;
+	
 };
 
 struct SixtyFourGatePitchSeqWidget : ModuleWidget {

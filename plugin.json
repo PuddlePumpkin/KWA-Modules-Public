@@ -20,6 +20,16 @@
       ]
     },
     {
+      "slug": "SixtyFourGatePitchSeqExpander",
+      "name": "KWA Pitch 64 Expander",
+      "description": "Expander for pitch 64",
+      "keywords": "gate ctrl",
+      "tags": [
+        "Sequencer",
+        "Expander"
+      ]
+    },
+    {
       "slug": "EightGateSequencer",
       "name": "KWA Trig 8",
       "description": "8 step trigger sequencer - compatible with KWA Control expanders",

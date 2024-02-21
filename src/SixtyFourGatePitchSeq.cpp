@@ -41,7 +41,7 @@ SixtyFourGatePitchSeq::SixtyFourGatePitchSeq() {
 
 void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 	//channels
-	int channels = std::min(std::max(inputs[GATE_INPUT].getChannels(), 1), 10);
+	int channels = std::min(std::max(inputs[GATE_INPUT].getChannels(), 1), 16);
 	//less often process - for sample insensitive code
 	if (processCounter >= 49) {
 		processFifty(args, channels);
@@ -95,7 +95,7 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 				currentStep += 1;
 			}
 			for (int c = 0; c < channels; c++) {
-				if(params[GATE_PARAMS + currentStep + (64 * c)].getValue() > 0){
+				if(gatePCV[0][c][currentStep] > 0){
 					if(!engines[c].hasTriggerOutputPulsedThisStep){
 						engines[c].triggerOutputPulse.trigger(1e-3f);
 						engines[c].hasTriggerOutputPulsedThisStep = true;
@@ -116,9 +116,9 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 		}
 		//Playback other voltages
 		for (int c = 0; c < channels; c++) {
-			if(params[HAS_RECORDED_PARAMS + currentStep + (64 * c)].getValue() > 0 && !(inputs[GATE_INPUT].getVoltage(c) > 0)){
-				outputs[VOCT_OUTPUT].setVoltage(params[VOCT_PARAMS + currentStep + (64 * c)].getValue(), c);
-				outputs[VELOCITY_OUTPUT].setVoltage(params[VELOCITY_PARAMS + currentStep + (64 * c)].getValue(), c);
+			if(hasRecordedDataPCV[0][c][currentStep] > 0.f && !(inputs[GATE_INPUT].getVoltage(c) > 0)){
+				outputs[VOCT_OUTPUT].setVoltage(voctPCV[0][c][currentStep], c);
+				outputs[VELOCITY_OUTPUT].setVoltage(velocityPCV[0][c][currentStep], c);
 			}
 		}
 		shouldRefreshDisplay = true;
@@ -130,10 +130,14 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 			// recording
 			if(isRecording)
 			{
-				params[GATE_PARAMS + currentWorkingStep + (64 * c)].setValue(10.f);
-				params[HAS_RECORDED_PARAMS + currentWorkingStep + (64 * c)].setValue(10.f);
-				params[VOCT_PARAMS + currentWorkingStep + (64 * c)].setValue(inputs[VOCT_INPUT].getVoltage(c));
-				params[VELOCITY_PARAMS + currentWorkingStep + (64 * c)].setValue(inputs[VELOCITY_INPUT].getVoltage(c));
+				gatePCV[0][c][currentWorkingStep] = 10.f;
+				hasRecordedDataPCV[0][c][currentWorkingStep] = 10.f;
+				voctPCV[0][c][currentWorkingStep] = inputs[VOCT_INPUT].getVoltage(c);
+				velocityPCV[0][c][currentWorkingStep] = inputs[VELOCITY_INPUT].getVoltage(c);
+				//dataOnePCV[0][c][currentWorkingStep] = ;
+				//dataTwoPCV[0][c][currentWorkingStep] = 10.f;
+				//dataThreePCV[0][c][currentWorkingStep] = 10.f;
+				//dataFourPCV[0][c][currentWorkingStep] = 10.f;
 			// in edit mode
 			} else if (!gateModeSelected)
 			{ 
@@ -142,10 +146,10 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 				for (int c = 0; c < channels; c++) {
 					for (int i = 0; i < 64; i++) {
 						if(editModeSelectedGates[i]){
-							params[GATE_PARAMS + (64 * c) + i].setValue(10.f);
-							params[HAS_RECORDED_PARAMS + (64 * c) + i].setValue(10.f);
-							params[VOCT_PARAMS + (64 * c) +  i].setValue(inputs[VOCT_INPUT].getVoltage(c));
-							params[VELOCITY_PARAMS + (64 * c) + i].setValue(inputs[VELOCITY_INPUT].getVoltage(c));
+							gatePCV[0][c][i] = 10.f;
+							hasRecordedDataPCV[0][c][i] = 10.f;
+							voctPCV[0][c][i] = inputs[VOCT_INPUT].getVoltage(c);
+							velocityPCV[0][c][i] = inputs[VELOCITY_INPUT].getVoltage(c);
 							editModeSelectedGates[i] = false;
 							selectedCount++;
 							lastSelectedIndex = i;
@@ -225,13 +229,13 @@ void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args, int channels){
 				if(gateModeSelected){
 					bool gateFoundOnAnyChannel = false;
 					for (int c = 0; c < channels; c++) {
-						if(params[GATE_PARAMS + i + (64 * c)].getValue() > 0.1f){
+						if(gatePCV[0][c][i] > 0.1f){
 							clearNoteParams(i, c);
 							gateFoundOnAnyChannel = true;
 						}
 					}
 					if(!gateFoundOnAnyChannel){
-						params[GATE_PARAMS + i].setValue(10.f);
+						gatePCV[0][0][i] = 10.f;
 					}
 				}
 				gateModifiedSinceRelease = true;
@@ -275,11 +279,14 @@ void SixtyFourGatePitchSeq::setModeBrightnesses() {
 }
 
 void SixtyFourGatePitchSeq::clearNoteParams(int i, int channel) {
-	params[HAS_RECORDED_PARAMS + i + (64 * channel)].setValue(0.f);
-	params[BUTTON_MATRIX_PARAMS + i + (64 * channel)].setValue(0.f);
-	params[VELOCITY_PARAMS + i + (64 * channel)].setValue(0.f);
-	params[VOCT_PARAMS + i + (64 * channel)].setValue(0.f);
-	params[GATE_PARAMS + i + (64 * channel)].setValue(0.f);
+	gatePCV[0][channel][i] = 0.f;
+	velocityPCV[0][channel][i] = 0.f;
+	voctPCV[0][channel][i] = 0.f;
+	hasRecordedDataPCV[0][channel][i] = 0.f;
+	dataOnePCV[0][channel][i] = 0.f;
+	dataTwoPCV[0][channel][i] = 0.f;
+	dataThreePCV[0][channel][i] = 0.f;
+	dataFourPCV[0][channel][i] = 0.f;
 }
 
 void SixtyFourGatePitchSeq::updateDisplay(int channels){
@@ -303,9 +310,9 @@ void SixtyFourGatePitchSeq::updateDisplay(int channels){
 		float velSum = 0.f;
 		int writtenChannelCount = 0.f;
 		for (int c = 0; c < channels; c++) {
-			if(params[GATE_PARAMS + i + (64 * c)].getValue() > 0.1f){
-				voctSum = voctSum + params[VOCT_PARAMS + i + (64 * c)].getValue();
-				velSum = velSum + params[VELOCITY_PARAMS + i + (64 * c)].getValue();
+			if(gatePCV[0][c][i] > 0.1f){
+				voctSum = voctSum + voctPCV[0][c][i];
+				velSum = velSum + velocityPCV[0][c][i];;
 				gateVal = 10.f;
 				writtenChannelCount++;
 			}
@@ -316,7 +323,7 @@ void SixtyFourGatePitchSeq::updateDisplay(int channels){
 		const int displayMode = params[DISPLAY_MODE_PARAM].getValue();
 		bool written = false;
 		for (int c = 0; c < channels; c++) {
-			if (params[HAS_RECORDED_PARAMS + i + (64 * c)].getValue() > 0.1f){
+			if (hasRecordedDataPCV[0][c][i] > 0.1f){
 				written = true;
 			}
 		}
@@ -387,6 +394,146 @@ void SixtyFourGatePitchSeq::updateDisplay(int channels){
 	//reset vars so we dont iterate every sample
 	wasButtonPressedThisSample = false;
 	shouldRefreshDisplay = false;
+}
+
+json_t* SixtyFourGatePitchSeq::dataToJson() {
+	// PCV Dimensions
+    const int pD = 10;
+    const int cD = 10;
+    const int vD = 64;
+
+	json_t* rootJ = json_object(); // Create a JSON object
+
+	json_t* gate3d = json_array();
+	json_t* voct3d = json_array();
+	json_t* rec3d = json_array();
+	json_t* vel3d = json_array();
+	json_t* dataOne3d = json_array();
+	json_t* dataTwo3d = json_array();
+	for (int p = 0; p < pD; p++) {
+		json_t* gate2d = json_array();
+		json_t* voct2d = json_array();
+		json_t* rec2d = json_array();
+		json_t* vel2d = json_array();
+		json_t* dataOne2d = json_array();
+		json_t* dataTwo2d = json_array();
+
+		for (int c = 0; c < cD; c++) {
+			json_t* gate1d = json_array();
+			json_t* voct1d = json_array();
+			json_t* rec1d = json_array();
+			json_t* vel1d = json_array();
+			json_t* dataOne1d = json_array();
+			json_t* dataTwo1d = json_array();
+
+			for (int v = 0; v < vD; v++) {
+				json_array_append_new(gate1d, json_real(gatePCV[p][c][v]));
+				json_array_append_new(voct1d, json_real(voctPCV[p][c][v]));
+				json_array_append_new(rec1d, json_real(hasRecordedDataPCV[p][c][v]));
+				json_array_append_new(vel1d, json_real(velocityPCV[p][c][v]));
+				json_array_append_new(dataOne1d, json_real(dataOnePCV[p][c][v]));
+				json_array_append_new(dataTwo1d, json_real(dataTwoPCV[p][c][v]));
+			}
+			json_array_append_new(gate2d, gate1d);
+			json_array_append_new(voct2d, voct1d);
+			json_array_append_new(rec2d, rec1d);
+			json_array_append_new(vel2d, vel1d);
+			json_array_append_new(dataOne2d, dataOne1d);
+			json_array_append_new(dataTwo2d, dataTwo1d);
+		}
+		json_array_append_new(gate3d, gate2d);
+		json_array_append_new(voct3d, voct2d);
+		json_array_append_new(rec3d, rec2d);
+		json_array_append_new(vel3d, vel2d);
+		json_array_append_new(dataOne3d, dataOne2d);
+		json_array_append_new(dataTwo3d, dataTwo2d);
+	}
+	json_object_set_new(rootJ, "gatePCV", gate3d);
+	json_object_set_new(rootJ, "voctPCV", voct3d);
+	json_object_set_new(rootJ, "hasRecordedDataPCV", rec3d);
+	json_object_set_new(rootJ, "velocityPCV", vel3d);
+	json_object_set_new(rootJ, "dataOnePCV", dataOne3d);
+	json_object_set_new(rootJ, "dataTwoPCV", dataTwo3d);
+
+	return rootJ;
+}
+
+void SixtyFourGatePitchSeq::dataFromJson(json_t* rootJ) {
+	// PCV Dimensions
+    const int pD = 10;
+    const int cD = 10;
+    const int vD = 64;
+
+	// gatePCV
+    json_t* gate3D = json_object_get(rootJ, "gatePCV");
+	json_t* voct3D = json_object_get(rootJ, "voctPCV");
+	json_t* rec3D = json_object_get(rootJ, "hasRecordedDataPCV");
+	json_t* vel3D = json_object_get(rootJ, "velocityPCV");
+	json_t* dataOne3D = json_object_get(rootJ, "dataOnePCV");
+	json_t* dataTwo3D = json_object_get(rootJ, "dataTwoPCV");
+    if (gate3D && json_is_array(gate3D) &&
+		voct3D && json_is_array(voct3D) &&
+		rec3D && json_is_array(rec3D) &&
+		vel3D && json_is_array(vel3D) &&
+		dataOne3D && json_is_array(dataOne3D) &&
+		dataTwo3D && json_is_array(dataTwo3D)) {
+        for (int p = 0; p < pD; p++) {
+            json_t* gate2D = json_array_get(gate3D, p);
+			json_t* voct2D = json_array_get(voct3D, p);
+			json_t* rec2D = json_array_get(rec3D, p);
+			json_t* vel2D = json_array_get(vel3D, p);
+			json_t* dataOne2D = json_array_get(dataOne3D, p);
+			json_t* dataTwo2D = json_array_get(dataTwo3D, p);
+            if (gate2D && json_is_array(gate2D) &&
+				voct2D && json_is_array(voct2D) &&
+				rec2D && json_is_array(rec2D) &&
+				vel2D && json_is_array(vel2D) &&
+				dataOne2D && json_is_array(dataOne2D) &&
+				dataTwo2D && json_is_array(dataTwo2D)) {
+                for (int c = 0; c < cD; c++) {
+                    json_t* gate1D = json_array_get(gate2D, c);
+					json_t* voct1D = json_array_get(voct2D, c);
+					json_t* rec1D = json_array_get(rec2D, c);
+					json_t* vel1D = json_array_get(vel2D, c);
+					json_t* dataOne1D = json_array_get(dataOne2D, c);
+					json_t* dataTwo1D = json_array_get(dataTwo2D, c);
+                    if (gate1D && json_is_array(gate1D) &&
+						voct1D && json_is_array(voct1D) &&
+						rec1D && json_is_array(rec1D) &&
+						vel1D && json_is_array(vel1D) &&
+						dataOne1D && json_is_array(dataOne1D) &&
+						dataTwo1D && json_is_array(dataTwo1D)) {
+                        for (int v = 0; v < vD; v++) {
+                            json_t* gateValue = json_array_get(gate1D, v);
+                            if (gateValue && json_is_real(gateValue)) {
+                                gatePCV[p][c][v] = json_real_value(gateValue);
+                            }
+							json_t* voctValue = json_array_get(voct1D, v);
+                            if (voctValue && json_is_real(voctValue)) {
+                                voctPCV[p][c][v] = json_real_value(voctValue);
+                            }
+							json_t* recValue = json_array_get(rec1D, v);
+                            if (recValue && json_is_real(recValue)) {
+                                hasRecordedDataPCV[p][c][v] = json_real_value(recValue);
+                            }
+							json_t* velValue = json_array_get(vel1D, v);
+                            if (velValue && json_is_real(velValue)) {
+                                velocityPCV[p][c][v] = json_real_value(velValue);
+                            }
+							json_t* dataOneValue = json_array_get(dataOne1D, v);
+                            if (dataOneValue && json_is_real(dataOneValue)) {
+                                dataOnePCV[p][c][v] = json_real_value(dataOneValue);
+                            }
+							json_t* dataTwoValue = json_array_get(dataTwo1D, v);
+                            if (dataTwoValue && json_is_real(dataTwoValue)) {
+                                dataTwoPCV[p][c][v] = json_real_value(dataTwoValue);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+	}	
 }
 
 SixtyFourGatePitchSeqWidget::SixtyFourGatePitchSeqWidget(SixtyFourGatePitchSeq* module) {
