@@ -4,10 +4,6 @@
 struct SixtyFourGatePitchSeq : Module {
 	enum ParamIds {
 		ENUMS(BUTTON_MATRIX_PARAMS, 64),
-		ENUMS(GATE_PARAMS, 640),
-		ENUMS(VOCT_PARAMS, 640),
-		ENUMS(HAS_RECORDED_PARAMS, 640),
-		ENUMS(VELOCITY_PARAMS, 640),
 		RECORD_MODE_PARAM,
 		EDIT_MODE_PARAM,
 		GATE_MODE_PARAM,
@@ -56,12 +52,14 @@ struct SixtyFourGatePitchSeq : Module {
 	float hasRecordedDataPCV[10][16][64] = {0.f};
 	float dataOnePCV[10][16][64] = {0.f};
 	float dataTwoPCV[10][16][64] = {0.f};
-	float dataThreePCV[10][16][64] = {0.f};
-	float dataFourPCV[10][16][64] = {0.f};
 
 	int currentStep = 0;
 	int currentSubstep = 0;
 	int currentWorkingStep = 0;
+	int processCounter = 0;
+	int clockStepsSinceLastEdit = 0;
+	int editCount = 0;
+	
 	bool gateModeSelected = false;
 	bool isRecording = false;
 	bool editModeSelectedGates[64] = {false};
@@ -69,13 +67,13 @@ struct SixtyFourGatePitchSeq : Module {
 	bool wasButtonPressedThisSample = false;
 	bool wasInitialized = false;
 	bool anyPressed = false;
+	bool gateModifiedSinceRelease = false;
 
 	float maxVoct = -10.f;
 	float minVoct = 10.f;
 	float maxVel = -10.f;
 	float minVel = 10.f;
-	bool gateModifiedSinceRelease = false;
-	int processCounter = 0;
+
 
 	struct Engine {
 		float voctVoltage = 0.f;
@@ -103,6 +101,10 @@ struct SixtyFourGatePitchSeq : Module {
 	json_t* dataToJson() override;
 
 	void dataFromJson(json_t* rootJ) override;
+	
+	void onReset(const ResetEvent& e) override;
+
+	void onRandomize(const RandomizeEvent& e) override;
 	
 };
 
