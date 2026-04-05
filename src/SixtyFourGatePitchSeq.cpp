@@ -138,14 +138,24 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 	// Reset - Schmitt trigger
 	bool resetTriggeredInternally = false;
 	if (resetInputSchmitt.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 1.f)) {
-		currentStep = 0;
+		const int playheadModeInt = std::floor(expanderSignalPlayhead);
+		if (playheadModeInt == 1) { // Descend
+			currentStep = stepCountInt - 1;
+		} else {
+			currentStep = 0;
+		}
+
+		if (playheadModeInt == 2) { // Ping Pong
+			pingPongDir = 1;
+		}
+
 		currentSubstep = 0;
 		shouldRefreshDisplay = true;
 		resetTriggeredInternally = true;
-		// Pulse outputs if gate on step 0
+		// Pulse outputs if gate on reset step
 		for (int c = 0; c < channels; c++) {
 			engines[c].hasTriggerOutputPulsedThisStep = false;
-			if(gatePCV[sequencePage][c][currentStep] > 0){
+			if(currentStep < 64 && gatePCV[sequencePage][c][currentStep] > 0){
 				engines[c].triggerOutputPulse.trigger(1e-3f);
 				engines[c].hasTriggerOutputPulsedThisStep = true;
 			}
@@ -190,23 +200,25 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 				switch(playheadModeInt){
 					default:
 						if (currentStep >= stepCountInt - 1) {
-							if (expanderSignalOneShot > 0.f) {
-								currentStep = 64; // Stop
-							} else {
-								currentStep = 0;
+							if (currentStep < 64) {
+								if (expanderSignalOneShot > 0.f) {
+									currentStep = 64; // Stop
+								} else {
+									currentStep = 0;
+								}
+								eocOutputPulse.trigger(1e-3f);
 							}
-							eocOutputPulse.trigger(1e-3f);
 						}
 						else if (currentStep < 64) {
 							currentStep += 1;
 						}
 						break;
 					case 1:
-						if (currentStep > stepCountInt - 1) {
+						if (currentStep < 64 && currentStep > stepCountInt - 1) {
 							//prevent being above max steps
 							currentStep = stepCountInt - 1;
 						}
-						if (currentStep - 1 < 0) {
+						if (currentStep < 64 && currentStep <= 0) {
 							if (expanderSignalOneShot > 0.f) {
 								currentStep = 64; // Stop
 							} else {
@@ -221,36 +233,43 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 					case 2:
 						if(pingPongDir == 1){
 							if (currentStep >= stepCountInt - 1) {
-								if (expanderSignalOneShot > 0.f) {
-									currentStep = 64; // Stop
-								} else {
-									currentStep -= 1;
-									pingPongDir = 0;
+								if (currentStep < 64) {
+									if (stepCountInt > 1) {
+										currentStep -= 1;
+										pingPongDir = 0;
+									} else {
+										pingPongDir = 0;
+										eocOutputPulse.trigger(1e-3f);
+									}
 								}
-								eocOutputPulse.trigger(1e-3f);
 							}
 							else if (currentStep < 64) {
 								currentStep += 1;
 							}
 						} else {
-							if (currentStep > stepCountInt - 1) {
+							if (currentStep < 64 && currentStep > stepCountInt - 1) {
 								//prevent being above max steps
 								currentStep = stepCountInt - 1;
 							}
-							if (currentStep - 1 < 0) {
+							if (currentStep < 64 && currentStep <= 0) {
 								if (expanderSignalOneShot > 0.f) {
 									currentStep = 64; // Stop
 									pingPongDir = 1;
 								} else {
-									currentStep = 1;
-									pingPongDir = 1;
+									if (stepCountInt > 1) {
+										currentStep = 1;
+										pingPongDir = 1;
+									} else {
+										currentStep = 0;
+										pingPongDir = 1;
+									}
 								}
 								eocOutputPulse.trigger(1e-3f);
 							} else if (currentStep < 64) {
 								currentStep -= 1;
 							}
-						break;
 						}
+						break;
 				}
 				//Pulse outputs if gate
 				if (currentStep < 64) {
@@ -283,7 +302,11 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 					break;
 				case 1:
 					if (currentSubstep >= 3) {
-						currentWorkingStep = (currentStep <= 0) ? stepCountInt - 1 : currentStep - 1;
+						if (currentStep <= 0) {
+							currentWorkingStep = (expanderSignalOneShot > 0.f) ? 64 : stepCountInt - 1;
+						} else {
+							currentWorkingStep = currentStep - 1;
+						}
 						// Reset edit count to clear notes when recording
 						if(isRecording){
 							editCount = 0;
@@ -295,7 +318,7 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 				case 2:
 					if(pingPongDir == 1){
 						if (currentSubstep >= 3){
-							currentWorkingStep = (currentStep == stepCountInt-1) ? currentStep - 1 : currentStep + 1;
+							currentWorkingStep = (currentStep >= stepCountInt-1) ? std::max(0, currentStep - 1) : currentStep + 1;
 							// Reset edit count to clear notes when recording
 							if(isRecording){
 								editCount = 0;
@@ -305,7 +328,15 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 						}
 					} else {
 						if (currentSubstep >= 3){
-							currentWorkingStep = (currentStep <= 0) ? currentStep + 1 : currentStep - 1;
+							if (currentStep <= 0) {
+								if (expanderSignalOneShot > 0.f) {
+									currentWorkingStep = 64;
+								} else {
+									currentWorkingStep = std::min(stepCountInt - 1, 1);
+								}
+							} else {
+								currentWorkingStep = currentStep - 1;
+							}
 							// Reset edit count to clear notes when recording
 							if(isRecording){
 								editCount = 0;
