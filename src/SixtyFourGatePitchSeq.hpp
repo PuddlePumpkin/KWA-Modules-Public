@@ -53,12 +53,24 @@ struct SixtyFourGatePitchSeq : Module {
 	float dataOnePCV[10][16][64] = {0.f};
 	float dataTwoPCV[10][16][64] = {0.f};
 
+	float voctCopy[16] = {0.f};
+	float velocityCopy[16] = {0.f};
+	bool gateCopy[16] = {false};
+	bool hasRecordedDataCopy[16] = {false};
+	float dataOneCopy[16] = {0.f};
+	float dataTwoCopy[16] = {0.f};
+	bool selectionCopy[16] = {false};
+
+
 	int currentStep = 0;
 	int currentSubstep = 0;
 	int currentWorkingStep = 0;
 	int processCounter = 0;
 	int clockStepsSinceLastEdit = 0;
 	int editCount = 0;
+	int sequencePage = 0;
+	int stepCountInt = 0;
+	int pingPongDir = 1;
 	
 	bool gateModeSelected = false;
 	bool isRecording = false;
@@ -68,13 +80,28 @@ struct SixtyFourGatePitchSeq : Module {
 	bool wasInitialized = false;
 	bool anyPressed = false;
 	bool gateModifiedSinceRelease = false;
+	bool copyPressedDown = false;
+	bool cutPressedDown = false;
+	bool pastePressedDown = false;
 
+	float expanderSignalPlay = 0.f;
+	float expanderSignalOneShot = 0.f;
+	float expanderSignalPage = 0.f;
+	float expanderSignalPlayhead = 0.f;
+	float expanderSignalDataOne = 0.f;
+	float expanderSignalDataTwo = 0.f;
+	float expanderSignalSteps = 0.f;
+	float expanderSignalCopy = 0.f;
+	float expanderSignalCut = 0.f;
+	float expanderSignalPaste = 0.f;
 	float maxVoct = -10.f;
 	float minVoct = 10.f;
 	float maxVel = -10.f;
 	float minVel = 10.f;
 
-
+	float leftMessages[2][10] = {};
+	float rightMessages[2][10] = {};
+	
 	struct Engine {
 		float voctVoltage = 0.f;
 		bool hasTriggerOutputPulsedThisStep = false;
@@ -105,6 +132,12 @@ struct SixtyFourGatePitchSeq : Module {
 	void onReset(const ResetEvent& e) override;
 
 	void onRandomize(const RandomizeEvent& e) override;
+
+	void copyNotes(int channels, bool cut = false);
+
+	void cutNotes(int channels);
+
+	void pasteNotes(int channels);
 	
 };
 

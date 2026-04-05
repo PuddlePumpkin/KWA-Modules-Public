@@ -4,6 +4,7 @@
 struct SequencerController : Module {
 	enum ParamIds {
 		CONTINUOUS_MODE_PARAM,
+		ONESHOT_MODE_PARAM,
 		NUM_PARAMS
 	};
 	enum InputIds {
@@ -16,6 +17,7 @@ struct SequencerController : Module {
 	};
 	enum LightIds {
 		CONTINUOUS_MODE_LIGHT,
+		ONESHOT_MODE_LIGHT,
 		NUM_LIGHTS
 	};
 
@@ -34,6 +36,7 @@ struct SequencerController : Module {
 	bool clockTriggered = false;
 	bool resetTriggered = false;
 	bool continuousModeActive = false;
+	bool oneShotModeActive = false;
 	bool continousModeActiveEocPulsed = false;
 
 	SequencerController() {
@@ -41,6 +44,7 @@ struct SequencerController : Module {
 		configInput(CLOCK_INPUT, "Clock");
 		configInput(RESET_INPUT, "Reset");
 		configButton(CONTINUOUS_MODE_PARAM, "Continuous Mode");
+		configButton(ONESHOT_MODE_PARAM, "One Shot Mode");
 
 		leftExpander.producerMessage = leftMessages[0];
 		leftExpander.consumerMessage = leftMessages[1];
@@ -52,6 +56,9 @@ struct SequencerController : Module {
 
 		bool continuousModeActive = params[CONTINUOUS_MODE_PARAM].getValue() > 0.f;
 		lights[CONTINUOUS_MODE_LIGHT].setBrightness(continuousModeActive);
+
+		bool oneShotModeActive = params[ONESHOT_MODE_PARAM].getValue() > 0.f;
+		lights[ONESHOT_MODE_LIGHT].setBrightness(oneShotModeActive);
 
 			//Continuous mode eoc pulse
 		if (continuousModeActive && !continousModeActiveEocPulsed){
@@ -79,7 +86,7 @@ struct SequencerController : Module {
 		}
 		
 		// Reset input
-		if (inputResetSchmitt.process((inputs[RESET_INPUT].getVoltage() > expanderInputMasterEOC ? inputs[RESET_INPUT].getVoltage() : expanderInputMasterEOC), 0.1f, 1.f)) {
+		if (inputResetSchmitt.process(std::max(inputs[RESET_INPUT].getVoltage(), oneShotModeActive ? 0.f : expanderInputMasterEOC), 0.1f, 1.f)) {
 			eocOutputPulse.trigger(1e-3f);
 			resetTriggered = true;
 		}
@@ -93,6 +100,7 @@ struct SequencerController : Module {
 			rightMessage[1] = resetTriggered;
 			rightMessage[2] = continuousModeActive;
 			rightMessage[3] = eocOutputPulse.process(args.sampleTime) ? 10.f : 0.f;
+			rightMessage[5] = oneShotModeActive;
 			
 			// Flip messages at the end of the timestep
 			rightExpander.module->leftExpander.messageFlipRequested = true;
@@ -113,6 +121,7 @@ struct SequencerControllerWidget : ModuleWidget {
 		addChild(createWidget<ScrewBlack>(Vec(box.size.x - 2 * RACK_GRID_WIDTH, RACK_GRID_HEIGHT - RACK_GRID_WIDTH)));
 
 		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(5.08, 63.35)), module, SequencerController::CONTINUOUS_MODE_PARAM, SequencerController::CONTINUOUS_MODE_LIGHT));
+		addParam(createLightParamCentered<VCVLightLatch<MediumSimpleLight<WhiteLight>>>(mm2px(Vec(5.08, 48.35)), module, SequencerController::ONESHOT_MODE_PARAM, SequencerController::ONESHOT_MODE_LIGHT));
 
 		addInput(createInputCentered<DarkPJ301MPort>(mm2px(Vec(5.08, 13)), module, SequencerController::CLOCK_INPUT));
 		addInput(createInputCentered<DarkPJ301MPort>(mm2px(Vec(5.08, 29.251)), module, SequencerController::RESET_INPUT));

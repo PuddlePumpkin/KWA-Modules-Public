@@ -40,6 +40,7 @@ struct EightGateSequencer : Module {
 	float expanderInputClock = 0;
 	float expanderInputReset = 0;
 	float expanderInputContinuousMode = 0;
+	float expanderInputOneShotMode = 0;
 	float expanderInputEOC = 0;
 	float expanderInputGlobalTrig = 0;
 	float expanderInputMasterEOC = 0;
@@ -92,6 +93,8 @@ struct EightGateSequencer : Module {
 			expanderInputEOC = leftMessage[3];
 			//[4] - Global Trigger
 			expanderInputGlobalTrig = leftMessage[4];
+			//[5] - One Shot Mode
+			expanderInputOneShotMode = (leftMessage[5] > 0.0f);
 		}
 
 		//Contiunous mode state activation
@@ -110,11 +113,15 @@ struct EightGateSequencer : Module {
 			// if we're on -1 but not continuous mode, step
 			if(activeStep != -1 || !expanderInputContinuousMode){
 				if (activeStep == 7) {
-					activeStep = (expanderInputContinuousMode ? -1 : 0);
+					if (expanderInputOneShotMode && !expanderInputContinuousMode) {
+						activeStep = 8;
+					} else {
+						activeStep = (expanderInputContinuousMode ? -1 : 0);
+					}
 				} 
-				else {
+				else if (activeStep < 7 || activeStep == 8) {
 					skipEoc = false;
-					activeStep += 1;
+					activeStep = (activeStep == 8) ? 0 : activeStep + 1;
 					eocOutputPulseTriggered = false;
 				}
 			}
@@ -194,6 +201,8 @@ struct EightGateSequencer : Module {
 			rightMessage[3] = eocOutputPulse.process(args.sampleTime) ? 10.f : 0.f;
 			//[4] - Global Trigger
 			rightMessage[4] = processedPulseVal > expanderInputGlobalTrig ? processedPulseVal : expanderInputGlobalTrig;
+			//[5] - One Shot Mode
+			rightMessage[5] = expanderInputOneShotMode;
 
 			// Flip messages at the end of the timestep
 			rightExpander.module->leftExpander.messageFlipRequested = true;

@@ -31,6 +31,12 @@ SixtyFourGatePitchSeq::SixtyFourGatePitchSeq() {
 	configOutput(GATE_OUTPUT, "Gate");
 	configOutput(VOCT_OUTPUT, "V/Oct");
 	configOutput(VELOCITY_OUTPUT, "Velocity");
+
+	leftExpander.producerMessage = leftMessages[0];
+	leftExpander.consumerMessage = leftMessages[1];
+	rightExpander.producerMessage = rightMessages[0];
+	rightExpander.consumerMessage = rightMessages[1];
+
 }
 
 void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
@@ -46,6 +52,58 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 	outputs[VOCT_OUTPUT].setChannels(channels);
 	outputs[VELOCITY_OUTPUT].setChannels(channels);
 	
+	// Read left expander messages
+	const bool is_baby = leftExpander.module && (leftExpander.module->model == modelSixtyFourGatePitchSeqExpander);
+	if (is_baby) {
+		float* leftMessage = (float*)leftExpander.consumerMessage;
+		//[0] - Play
+		expanderSignalPlay = leftMessage[0];
+		//[1] - Page
+		expanderSignalPage = leftMessage[1];
+		//[2] - Playhead
+		expanderSignalPlayhead = leftMessage[2];
+		//[3] - Data One
+		expanderSignalDataOne = leftMessage[3];
+		//[4] - Data Two
+		expanderSignalDataTwo = leftMessage[4];
+		//[5] - Steps
+		expanderSignalSteps = leftMessage[5];
+		//[6] - Copy
+		expanderSignalCopy = leftMessage[6];
+		//[7] - Cut
+		expanderSignalCut = leftMessage[7];
+		//[8] - Paste
+		expanderSignalPaste = leftMessage[8];
+		//[9] - One Shot
+		expanderSignalOneShot = leftMessage[9];
+	}
+	// Send left expander messages
+	if (is_baby) {
+		float* leftSendMessage = (float*)leftExpander.module->rightExpander.producerMessage;
+		leftSendMessage[0] = 0.f;
+		leftSendMessage[1] = 0.f;
+		// Flip messages at the end of the timestep
+		leftExpander.module->rightExpander.messageFlipRequested = true;
+	}
+	sequencePage = std::roundf(is_baby ? (expanderSignalPage - 1) : 0);
+	if(is_baby){
+		stepCountInt = expanderSignalSteps > -0.5f ? std::roundf(expanderSignalSteps * 6.4) : params[STEP_COUNT_PARAM].getValue();
+		stepCountInt = stepCountInt < 1 ? 1 : stepCountInt;
+		stepCountInt = stepCountInt > 64 ? 64 : stepCountInt;
+	} else{
+		stepCountInt = params[STEP_COUNT_PARAM].getValue();
+	}
+
+	// Playback other voltages
+	if (currentStep < 64) {
+		for (int c = 0; c < channels; c++) {
+			if(hasRecordedDataPCV[sequencePage][c][currentStep] > 0.f && !(inputs[GATE_INPUT].getVoltage(c) > 0)){
+				outputs[VOCT_OUTPUT].setVoltage(voctPCV[sequencePage][c][currentStep], c);
+				outputs[VELOCITY_OUTPUT].setVoltage(velocityPCV[sequencePage][c][currentStep], c);
+			}
+		}
+	}
+
 	// Gate Rise + Fall
 	for (int c = 0; c < channels; c++) {
 		engines[c].gateFellThisSample = false;	
@@ -77,14 +135,34 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 		}
 	}
 
+	// Reset - Schmitt trigger
+	bool resetTriggeredInternally = false;
+	if (resetInputSchmitt.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 1.f)) {
+		currentStep = 0;
+		currentSubstep = 0;
+		shouldRefreshDisplay = true;
+		resetTriggeredInternally = true;
+		// Pulse outputs if gate on step 0
+		for (int c = 0; c < channels; c++) {
+			engines[c].hasTriggerOutputPulsedThisStep = false;
+			if(gatePCV[sequencePage][c][currentStep] > 0){
+				engines[c].triggerOutputPulse.trigger(1e-3f);
+				engines[c].hasTriggerOutputPulsedThisStep = true;
+			}
+		}
+	}
+
 	// Clock
-	if (clockInputSchmitt.process(inputs[CLOCK_INPUT].getVoltage(),0.1f, 1.f)) {
+	if (!resetTriggeredInternally && clockInputSchmitt.process(inputs[CLOCK_INPUT].getVoltage(),0.1f, 1.f)) {
 		currentSubstep += 1;
+		// Don't Increment edit steps if its -1 to prevent random deselecting of edit selection
 		if (clockStepsSinceLastEdit > -1){
 			clockStepsSinceLastEdit++;
+			//Clear edit selection after waiting for 2 substeps since edit was entered
 			if(clockStepsSinceLastEdit > 2){
 				int selectedCount = 0;
 				int lastSelectedIndex = 0;
+				// Clear edit selection
 				for (int i = 0; i < 64; i++) {
 					if(editModeSelectedGates[i]){
 						editModeSelectedGates[i] = false;
@@ -94,56 +172,157 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 				}
 				// only 1 gate was edited, step to next
 				if(selectedCount == 1){
-					editModeSelectedGates[lastSelectedIndex >= (params[STEP_COUNT_PARAM].getValue() - 1) ? 0 : lastSelectedIndex + 1] = true;
+					editModeSelectedGates[lastSelectedIndex >= (stepCountInt - 1) ? 0 : lastSelectedIndex + 1] = true;
 				}
+				// Reset editCount to allow clearing of note params on next input
 				editCount = 0;
+				// Sleep the last edit clock
 				clockStepsSinceLastEdit = -1;
 			}
 		}
+		//Substep loop
+		const int playheadModeInt = std::floor(expanderSignalPlayhead);
 		if (currentSubstep >= 4){
-			if (currentStep >= params[STEP_COUNT_PARAM].getValue() - 1) {
-				currentStep =  0;
-				eocOutputPulse.trigger(1e-3f);
-			} 
-			else {
-				currentStep += 1;
-			}
-			for (int c = 0; c < channels; c++) {
-				if(gatePCV[0][c][currentStep] > 0){
-					if(!engines[c].hasTriggerOutputPulsedThisStep){
-						engines[c].triggerOutputPulse.trigger(1e-3f);
-						engines[c].hasTriggerOutputPulsedThisStep = true;
-					}
-				}
-			}
-			currentSubstep = 0;
-			clockOutputPulse.trigger(1e-3f);
 			for (int c = 0; c < channels; c++) {
 				engines[c].hasTriggerOutputPulsedThisStep = false;
 			}
+			if(is_baby ? expanderSignalPlay > 0.f : true) {
+				switch(playheadModeInt){
+					default:
+						if (currentStep >= stepCountInt - 1) {
+							if (expanderSignalOneShot > 0.f) {
+								currentStep = 64; // Stop
+							} else {
+								currentStep = 0;
+							}
+							eocOutputPulse.trigger(1e-3f);
+						}
+						else if (currentStep < 64) {
+							currentStep += 1;
+						}
+						break;
+					case 1:
+						if (currentStep > stepCountInt - 1) {
+							//prevent being above max steps
+							currentStep = stepCountInt - 1;
+						}
+						if (currentStep - 1 < 0) {
+							if (expanderSignalOneShot > 0.f) {
+								currentStep = 64; // Stop
+							} else {
+								currentStep = stepCountInt - 1;
+							}
+							eocOutputPulse.trigger(1e-3f);
+						}
+						else if (currentStep < 64) {
+							currentStep -= 1;
+						}
+						break;
+					case 2:
+						if(pingPongDir == 1){
+							if (currentStep >= stepCountInt - 1) {
+								if (expanderSignalOneShot > 0.f) {
+									currentStep = 64; // Stop
+								} else {
+									currentStep -= 1;
+									pingPongDir = 0;
+								}
+								eocOutputPulse.trigger(1e-3f);
+							}
+							else if (currentStep < 64) {
+								currentStep += 1;
+							}
+						} else {
+							if (currentStep > stepCountInt - 1) {
+								//prevent being above max steps
+								currentStep = stepCountInt - 1;
+							}
+							if (currentStep - 1 < 0) {
+								if (expanderSignalOneShot > 0.f) {
+									currentStep = 64; // Stop
+									pingPongDir = 1;
+								} else {
+									currentStep = 1;
+									pingPongDir = 1;
+								}
+								eocOutputPulse.trigger(1e-3f);
+							} else if (currentStep < 64) {
+								currentStep -= 1;
+							}
+						break;
+						}
+				}
+				//Pulse outputs if gate
+				if (currentStep < 64) {
+					for (int c = 0; c < channels; c++) {
+						if(gatePCV[sequencePage][c][currentStep] > 0){
+							if(!engines[c].hasTriggerOutputPulsedThisStep){
+								engines[c].triggerOutputPulse.trigger(1e-3f);
+								engines[c].hasTriggerOutputPulsedThisStep = true;
+							}
+						}
+					}
+				}
+				currentSubstep = 0;
+			}
+			clockOutputPulse.trigger(1e-3f);
 		}
 		// Quantize substep to a working step
-		if (currentSubstep >= 3){
-			currentWorkingStep = (currentStep == params[STEP_COUNT_PARAM].getValue()-1) ? 0 : currentStep + 1;
-			//Reset edit count to clear notes when recording
-			if(isRecording){
-				editCount = 0;
-			}
-		}else{
-			currentWorkingStep = currentStep;
-		}
-		//Playback other voltages
-		for (int c = 0; c < channels; c++) {
-			if(hasRecordedDataPCV[0][c][currentStep] > 0.f && !(inputs[GATE_INPUT].getVoltage(c) > 0)){
-				outputs[VOCT_OUTPUT].setVoltage(voctPCV[0][c][currentStep], c);
-				outputs[VELOCITY_OUTPUT].setVoltage(velocityPCV[0][c][currentStep], c);
+		if (currentStep < 64) {
+			switch(playheadModeInt){
+				default:
+					if (currentSubstep >= 3){
+						currentWorkingStep = (currentStep == stepCountInt-1) ? 0 : currentStep + 1;
+						// Reset edit count to clear notes when recording
+						if(isRecording){
+							editCount = 0;
+						}
+					} else {
+						currentWorkingStep = currentStep;
+					}
+					break;
+				case 1:
+					if (currentSubstep >= 3) {
+						currentWorkingStep = (currentStep <= 0) ? stepCountInt - 1 : currentStep - 1;
+						// Reset edit count to clear notes when recording
+						if(isRecording){
+							editCount = 0;
+						}
+					} else {
+						currentWorkingStep = currentStep;
+					}
+					break;
+				case 2:
+					if(pingPongDir == 1){
+						if (currentSubstep >= 3){
+							currentWorkingStep = (currentStep == stepCountInt-1) ? currentStep - 1 : currentStep + 1;
+							// Reset edit count to clear notes when recording
+							if(isRecording){
+								editCount = 0;
+							}
+						} else {
+							currentWorkingStep = currentStep;
+						}
+					} else {
+						if (currentSubstep >= 3){
+							currentWorkingStep = (currentStep <= 0) ? currentStep + 1 : currentStep - 1;
+							// Reset edit count to clear notes when recording
+							if(isRecording){
+								editCount = 0;
+							}
+						} else {
+							currentWorkingStep = currentStep;
+						}
+					}
+					break;
 			}
 		}
 		shouldRefreshDisplay = true;
 	}
+
 	for (int c = 0; c < channels; c++) {
 		// On input gate rise
-		if (engines[c].gateRoseThisSample || engines[c].voctMovedThisSample) 
+		if ((engines[c].gateRoseThisSample || engines[c].voctMovedThisSample) && currentStep < 64) 
 		{
 			// recording
 			if(isRecording)
@@ -151,42 +330,45 @@ void SixtyFourGatePitchSeq::process(const ProcessArgs& args) {
 				if(editCount == 0) {
 					clearNoteParams(currentWorkingStep, channels);
 				}
+				// Increment edit count, To reset note params only once per step
 				editCount++;
-				gatePCV[0][c][currentWorkingStep] = 10.f;
-				hasRecordedDataPCV[0][c][currentWorkingStep] = 10.f;
-				voctPCV[0][c][currentWorkingStep] = inputs[VOCT_INPUT].getVoltage(c);
-				velocityPCV[0][c][currentWorkingStep] = inputs[VELOCITY_INPUT].getVoltage(c);
-				//dataOnePCV[0][c][currentWorkingStep] = ;
-				//dataTwoPCV[0][c][currentWorkingStep] = 10.f;
+
+				// Record Data
+				gatePCV[sequencePage][c][currentWorkingStep] = 10.f;
+				hasRecordedDataPCV[sequencePage][c][currentWorkingStep] = 10.f;
+				voctPCV[sequencePage][c][currentWorkingStep] = inputs[VOCT_INPUT].getVoltage(c);
+				velocityPCV[sequencePage][c][currentWorkingStep] = inputs[VELOCITY_INPUT].getVoltage(c);
+				// dataOnePCV[sequencePage][c][currentWorkingStep] = ;
+				// dataTwoPCV[sequencePage][c][currentWorkingStep] = 10.f;
+
 			// in edit mode
 			} else if (!gateModeSelected)
 			{ 
+				// Iterate buttons
 				for (int i = 0; i < 64; i++) {
+					// If button is selected with edit mode
 					if(editModeSelectedGates[i]){
 						if(editCount == 0) {
+							// Subloop neccesary because edit count increments
 							for (int j = 0; j < 64; j++) {
 								if(editModeSelectedGates[j]){
 									clearNoteParams(j, channels);
 								}
 							}
 						}
-						gatePCV[0][c][i] = 10.f;
-						hasRecordedDataPCV[0][c][i] = 10.f;
-						voctPCV[0][c][i] = inputs[VOCT_INPUT].getVoltage(c);
-						velocityPCV[0][c][i] = inputs[VELOCITY_INPUT].getVoltage(c);
+						// Edit Data
+						gatePCV[sequencePage][c][i] = 10.f;
+						hasRecordedDataPCV[sequencePage][c][i] = 10.f;
+						voctPCV[sequencePage][c][i] = inputs[VOCT_INPUT].getVoltage(c);
+						velocityPCV[sequencePage][c][i] = inputs[VELOCITY_INPUT].getVoltage(c);
+						// Increment edit count, To reset note params only once per edit
 						editCount++;
 					}
 				}
+				// Start counting up clock steps again
 				clockStepsSinceLastEdit = 0;
 			}
 		}
-	}
-
-	// Reset - Schmitt trigger
-	if (resetInputSchmitt.process(inputs[RESET_INPUT].getVoltage(), 0.1f, 1.f)) {
-		currentStep = 0;
-		currentSubstep = 0;
-		shouldRefreshDisplay = true;
 	}
 
 	for (int c = 0; c < channels; c++) {
@@ -238,6 +420,34 @@ void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args, int channels){
 		params[GATE_MODE_PARAM].setValue(false);
 	}
 
+	if(expanderSignalCopy > 0.1f){
+		if(!copyPressedDown){
+			//DEBUG("Copy pressed down");
+			copyPressedDown = true;
+			copyNotes(channels, false);
+		}
+	} else {
+		copyPressedDown = false;
+	}
+	if(expanderSignalCut > 0.1f){
+		if(!cutPressedDown){
+			//DEBUG("Cut pressed down");
+			cutPressedDown = true;
+			cutNotes(channels);
+		}
+	} else {
+		cutPressedDown = false;
+	}
+	if(expanderSignalPaste > 0.1f){
+		if(!pastePressedDown){
+			//DEBUG("Paste pressed down");
+			pastePressedDown = true;
+			pasteNotes(channels);
+		}
+	} else {
+		pastePressedDown = false;
+	}
+
 	// Iterate main button matrix to check for pressed buttons
 	bool anyThisSet = false;
 	for (int i = 0; i < 64; i++) {
@@ -249,13 +459,13 @@ void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args, int channels){
 				if(gateModeSelected){
 					bool gateFoundOnAnyChannel = false;
 					for (int c = 0; c < channels; c++) {
-						if(gatePCV[0][c][i] > 0.1f){
+						if(gatePCV[sequencePage][c][i] > 0.1f){
 							gateFoundOnAnyChannel = true;
 						}
 					}
 					clearNoteParams(i, channels);
 					if(!gateFoundOnAnyChannel){
-						gatePCV[0][0][i] = 10.f;
+						gatePCV[sequencePage][0][i] = 10.f;
 					}
 				}
 				gateModifiedSinceRelease = true;
@@ -291,6 +501,54 @@ void SixtyFourGatePitchSeq::processFifty(const ProcessArgs& args, int channels){
 	}
 }
 
+void SixtyFourGatePitchSeq::copyNotes(int channels, bool cut) {
+	for (int c = 0; c < channels; c++) {
+		for(int i = 0; i < 64; i++){
+			if(editModeSelectedGates[i]){
+				gateCopy[c] = gatePCV[sequencePage][c][i] > 0.1f;
+				voctCopy[c] = voctPCV[sequencePage][c][i];
+				velocityCopy[c] = velocityPCV[sequencePage][c][i];
+				hasRecordedDataCopy[c] = hasRecordedDataPCV[sequencePage][c][i] > 0.1f;
+				dataOneCopy[c] = dataOnePCV[sequencePage][c][i];
+				dataTwoCopy[c] = dataTwoPCV[sequencePage][c][i];
+				selectionCopy[c] = true;
+				//todo multi select, require first selected index, paste transforms and loops at max step count
+			}
+		}
+	}
+	for (int i = 0; i < 64; i++) {
+		if(cut){
+			if(editModeSelectedGates[i]){
+				clearNoteParams(i, channels);
+			}
+		}
+		editModeSelectedGates[i] = false;
+	}
+}
+
+void SixtyFourGatePitchSeq::cutNotes(int channels) {
+	copyNotes(channels, true);
+}
+
+void SixtyFourGatePitchSeq::pasteNotes(int channels) {
+	for (int c = 0; c < channels; c++) {
+		for(int i = 0; i < 64; i++){
+			if(editModeSelectedGates[i]){
+				gatePCV[sequencePage][c][i] = gateCopy[c] ? 10.f : 0.f;
+				voctPCV[sequencePage][c][i] = voctCopy[c];
+				velocityPCV[sequencePage][c][i] = velocityCopy[c];
+				hasRecordedDataPCV[sequencePage][c][i] = hasRecordedDataCopy[c] ? 10.f : 0.f;
+				dataOnePCV[sequencePage][c][i] = dataOneCopy[c];
+				dataOnePCV[sequencePage][c][i] = dataTwoCopy[c];
+			}
+		}
+	}
+	for (int i = 0; i < 64; i++) {
+		editModeSelectedGates[i] = false;
+	}
+}
+
+
 void SixtyFourGatePitchSeq::setModeBrightnesses() {
 	// Set Mode Brightnesses
 	lights[RECORD_MODE_LIGHT].setBrightness(isRecording);
@@ -300,12 +558,12 @@ void SixtyFourGatePitchSeq::setModeBrightnesses() {
 
 void SixtyFourGatePitchSeq::clearNoteParams(int i, int channels) {
 	for (int c = 0; c < channels; c++){
-		gatePCV[0][c][i] = 0.f;
-		velocityPCV[0][c][i] = 0.f;
-		voctPCV[0][c][i] = 0.f;
-		hasRecordedDataPCV[0][c][i] = 0.f;
-		dataOnePCV[0][c][i] = 0.f;
-		dataTwoPCV[0][c][i] = 0.f;
+		gatePCV[sequencePage][c][i] = 0.f;
+		velocityPCV[sequencePage][c][i] = 0.f;
+		voctPCV[sequencePage][c][i] = 0.f;
+		hasRecordedDataPCV[sequencePage][c][i] = 0.f;
+		dataOnePCV[sequencePage][c][i] = 0.f;
+		dataTwoPCV[sequencePage][c][i] = 0.f;
 	}
 }
 
@@ -330,9 +588,9 @@ void SixtyFourGatePitchSeq::updateDisplay(int channels){
 		float velSum = 0.f;
 		int writtenChannelCount = 0.f;
 		for (int c = 0; c < channels; c++) {
-			if(gatePCV[0][c][i] > 0.1f){
-				voctSum = voctSum + voctPCV[0][c][i];
-				velSum = velSum + velocityPCV[0][c][i];;
+			if(gatePCV[sequencePage][c][i] > 0.1f){
+				voctSum = voctSum + voctPCV[sequencePage][c][i];
+				velSum = velSum + velocityPCV[sequencePage][c][i];
 				gateVal = 10.f;
 				writtenChannelCount++;
 			}
@@ -343,19 +601,19 @@ void SixtyFourGatePitchSeq::updateDisplay(int channels){
 		const int displayMode = params[DISPLAY_MODE_PARAM].getValue();
 		bool written = false;
 		for (int c = 0; c < channels; c++) {
-			if (hasRecordedDataPCV[0][c][i] > 0.1f){
+			if (hasRecordedDataPCV[sequencePage][c][i] > 0.1f){
 				written = true;
 			}
 		}
 		//write min maxes
-		if(written && i < (params[STEP_COUNT_PARAM].getValue())){
+		if(written && i < (stepCountInt)){
 			minVoct = voct < minVoct ? voct : minVoct;
 			maxVoct = voct > maxVoct ? voct : maxVoct;
 			minVel = vel < minVel ? vel : minVel;
 			maxVel = vel > maxVel ? vel : maxVel;
 		}
 		//Display Mode Brightness
-		if(i <= (params[STEP_COUNT_PARAM].getValue() - 1)) {
+		if(i <= (stepCountInt - 1)) {
 			switch(displayMode){
 				//[1] - Gate display
 				case 1:
@@ -564,7 +822,7 @@ void SixtyFourGatePitchSeq::onRandomize(const RandomizeEvent& e){
         for (int c = 0; c < cD; c++) {
             for (int v = 0; v < vD; v++) {
 				hasRecordedDataPCV[p][c][v] = 10.f;
-				gatePCV[p][c][v] = (10.f * random::uniform()) >= 5.f ? 10.f : 0.f;
+				gatePCV[p][c][v] = 10.f;
                 voctPCV[p][c][v] = (10.f * random::uniform()) - 5.f;
 				velocityPCV[p][c][v] = 10.f * random::uniform();
 				dataOnePCV[p][c][v] = (10.f * random::uniform()) - 5.f;

@@ -22,6 +22,13 @@ struct MidSizeButton : app::SvgSwitch {
 	}
 };
 
+struct MomentaryMidSizeButton : app::SvgSwitch {
+	MomentaryMidSizeButton() {
+		momentary = true;
+		addFrame(Svg::load(asset::plugin(pluginInstance, "res/n_RubberButton.svg")));
+	}
+};
+
 struct RubberRectButtonLarge : app::SvgSwitch {
 	RubberRectButtonLarge() {
 		momentary = true;

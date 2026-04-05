@@ -22,6 +22,7 @@ struct SequencerEnd : Module {
 	dsp::PulseGenerator clockOutputPulse;
 	//Continous Mode doesnt pulse;
 	bool ContinousModeOutput;
+	bool OneShotModeOutput;
 	dsp::PulseGenerator resetOutputPulse;
 	dsp::PulseGenerator eocOutputPulse;
 	dsp::PulseGenerator globalTriggerOutputPulse;
@@ -47,6 +48,8 @@ struct SequencerEnd : Module {
 	void process(const ProcessArgs& args) override {
 		const bool is_baby = leftExpander.module && (leftExpander.module->model == modelEightGateSequencer
 			|| leftExpander.module->model == modelEightGateSequencerChild);
+		
+		bool oneShotModeActive = false;
 		// Read left expander messages
 		if (is_baby) {
 			float* leftMessage = (float*)leftExpander.consumerMessage;
@@ -70,12 +73,17 @@ struct SequencerEnd : Module {
 			if (leftMessage[4] > 0.0f) {
 				globalTriggerOutputPulse.trigger(1e-3f);
 			}
+			//[5] One Shot Mode Signal
+			if (leftMessage[5] > 0.0f) {
+				oneShotModeActive = true;
+				OneShotModeOutput = true;
+			}
 		}
 
 		// Send left
 		if (is_baby) {
 			float* leftSendMessage = (float*)leftExpander.module->rightExpander.producerMessage;
-			leftSendMessage[0] = (eocOutputPulse.process(args.sampleTime) ? 10.f : 0.f);
+			leftSendMessage[0] = (eocOutputPulse.process(args.sampleTime) && !oneShotModeActive ? 10.f : 0.f);
 
 			// Flip messages at the end of the timestep
 			leftExpander.module->rightExpander.messageFlipRequested = true;
@@ -98,6 +106,7 @@ struct SequencerEnd : Module {
 
 		//Reinit bools
 		ContinousModeOutput = false;
+		OneShotModeOutput = false;
 	}
 };
 
